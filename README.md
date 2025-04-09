@@ -1,4 +1,5 @@
 # Iris-Codec-JavaScript
+[![Iris Codec Emscripten Webassembly Build](https://github.com/IrisDigitalPathology/Iris-Codec-JavaScript/actions/workflows/emcmake.yml/badge.svg)](https://github.com/IrisDigitalPathology/Iris-Codec-JavaScript/actions/workflows/emcmake.yml)
 
 This repository contains the WebAssembly (WASM) build of the Iris Codec library, allowing it to be used in web browsers and Node.js applications.
 
