@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Iris Codec WebAssembly Slide Viewer</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-panel {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        #output {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-top: 20px;
+            height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+
+        #output p {
+            margin: 5px 0;
+            line-height: 1.4;
+        }
+
+        .slide-info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f4f8;
+            border-radius: 4px;
+            border-left: 4px solid #3498db;
+        }
+
+        .slide-info h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+
+        .slide-info pre {
+            margin: 10px 0 0 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+
+        .layer-info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .layer-info-table th,
+        .layer-info-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .layer-info-table th {
+            background-color: #f2f2f2;
+        }
+
+        .layer-info-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .metadata-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+
+        .metadata-item {
+            margin: 5px 0;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 18px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Slide viewer specific styles */
+        #slideViewer {
+            margin-top: 20px;
+            display: none;
+        }
+
+        #viewerControls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        #viewerCanvas {
+            border: 1px solid #ddd;
+            cursor: grab;
+            background-color: #f0f0f0;
+            background-image: linear-gradient(45deg, #e0e0e0 25%, transparent 25%),
+                linear-gradient(-45deg, #e0e0e0 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #e0e0e0 75%),
+                linear-gradient(-45deg, transparent 75%, #e0e0e0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        #viewerCanvas:active {
+            cursor: grabbing;
+        }
+
+        #statusBar {
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Iris Codec WebAssembly Slide Viewer</h1>
+
+        <div class="control-panel">
+            <input type="file" id="fileInput" accept=".iris" disabled>
+        </div>
+
+        <div id="slideInfo" class="slide-info" style="display: none;">
+            <h3>Slide Information</h3>
+            <div id="basicInfo"></div>
+
+            <h4>Layer Details</h4>
+            <table class="layer-info-table" id="layerTable">
+                <thead>
+                    <tr>
+                        <th>Layer</th>
+                        <th>X Tiles</th>
+                        <th>Y Tiles</th>
+                        <th>Total Tiles</th>
+                        <th>Scale</th>
+                        <th>Downsample</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Layer data will be inserted here -->
+                </tbody>
+            </table>
+
+            <div id="metadataSection" class="metadata-section" style="display: none;">
+                <h4>Slide Metadata</h4>
+                <div id="metadataInfo"></div>
+            </div>
+        </div>
+
+        <div id="slideViewer">
+            <div id="viewerControls">
+                <label for="layerSelect">Layer:</label>
+                <select id="layerSelect"></select>
+                <button id="resetViewBtn">Reset View</button>
+            </div>
+            <canvas id="viewerCanvas" width="800" height="600"></canvas>
+            <div id="statusBar">Position: X: 0, Y: 0 | Tile: X: 0, Y: 0</div>
+        </div>
+
+        <div id="output"></div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loadingText">Loading...</div>
+    </div>
+
+    <script>
+        // Helper function to append text to the output div
+        function log(message) {
+            const output = document.getElementById('output');
+            const p = document.createElement('p');
+            p.textContent = message;
+            output.appendChild(p);
+            console.log(message);
+
+            // Auto-scroll to bottom
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // Show/hide loading overlay
+        function showLoading(message = "Loading...") {
+            document.getElementById('loadingText').textContent = message;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        // Initialize the IrisCodec module and global variables
+        let irisModule;
+        let currentFileName = null;
+        let slideInfo = null;
+        let slideHandle = null;
+
+        // Slide viewer state
+        let viewerState = {
+            currentLayer: 0,
+            centerTileX: 0,
+            centerTileY: 0,
+            offsetX: 0,
+            offsetY: 0,
+            scale: 1,
+            isDragging: false,
+            lastMouseX: 0,
+            lastMouseY: 0,
+            tileCache: {}, // Cache for loaded tiles: {layerIdx_tileIdx: imageElement}
+            visibleTiles: [], // Currently visible tiles
+            tileSize: 256, // Default tile size
+            initialViewSet: false
+        };
+
+        // Check if the module is available
+        window.onload = function () {
+            log("Page loaded, checking for IrisCodec module...");
+            showLoading("Initializing IrisCodec module...");
+
+            if (typeof Module !== 'undefined') {
+                log("Found Module object");
+                initializeWithModule(Module);
+            } else if (typeof IrisCodec !== 'undefined') {
+                log("Found IrisCodec function");
+                IrisCodec().then(initializeWithModule).catch(err => {
+                    log(`Failed to initialize module: ${err}`);
+                    hideLoading();
+                });
+            } else {
+                log("ERROR: Neither Module nor IrisCodec is defined. Check that iris_codec.js is loaded correctly.");
+                log("Available global variables: " + Object.keys(window).filter(k => !k.startsWith('_')).join(', '));
+                hideLoading();
+            }
+        };
+
+        function initializeWithModule(module) {
+            irisModule = module;
+            log("WebAssembly module initialized!");
+
+            // Test getCodecVersion
+            try {
+                const version = irisModule.getCodecVersion();
+                log(`Codec Version: ${version.major}.${version.minor}.${version.build}`);
+
+                // Enable the file input
+                document.getElementById('fileInput').disabled = false;
+                hideLoading();
+            } catch (e) {
+                log(`Error getting codec version: ${e.message}`);
+                hideLoading();
+            }
+        }
+
+        // File upload handler
+        document.getElementById('fileInput').addEventListener('change', function (event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Close previous slide if open
+            if (slideHandle) {
+                try {
+                    irisModule.closeSlide(slideHandle);
+                } catch (e) {
+                    console.error("Error closing slide:", e);
+                }
+                slideHandle = null;
+            }
+
+            currentFileName = file.name;
+            log(`Selected file: ${currentFileName}`);
+            showLoading("Loading slide file...");
+
+            // Read the file and write it to the Emscripten virtual filesystem
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const data = new Uint8Array(e.target.result);
+
+                // Write the file to the Emscripten filesystem
+                try {
+                    // Make sure the module is initialized
+                    if (!irisModule || !irisModule.FS) {
+                        throw new Error("Module or FS API not available");
+                    }
+
+                    irisModule.FS.writeFile(currentFileName, data);
+                    log(`File written to Emscripten filesystem: ${currentFileName}`);
+
+                    // Step 1: Automatically validate the slide
+                    try {
+                        const validationResult = irisModule.validateSlide(currentFileName);
+                        log(`Validation Result: ${validationResult.success ? "Success" : "Failure"}`);
+                        if (validationResult.message) {
+                            log(`Validation Message: ${validationResult.message}`);
+                        }
+
+                        // Only proceed if validation was successful
+                        if (validationResult.success) {
+                            // Step 2: Open the slide
+                            try {
+                                const openResult = irisModule.openSlide(currentFileName);
+                                if (openResult.success) {
+                                    slideHandle = openResult.handle;
+                                    log(`Slide opened successfully, handle: ${slideHandle}`);
+
+                                    // Step 3: Automatically get slide info
+                                    try {
+                                        const infoResult = irisModule.getSlideInfo(slideHandle);
+                                        log(`Get Slide Info Result: ${infoResult.success ? "Success" : "Failure"}`);
+
+                                        if (infoResult.success) {
+                                            slideInfo = infoResult;
+
+                                            // Get encoding name
+                                            let encodingName = "UNKNOWN";
+                                            switch (infoResult.encoding) {
+                                                case 0: encodingName = "UNDEFINED"; break;
+                                                case 1: encodingName = "IRIS"; break;
+                                                case 2: encodingName = "JPEG"; break;
+                                                case 3: encodingName = "AVIF"; break;
+                                            }
+
+                                            // Display basic slide information
+                                            const basicInfoDiv = document.getElementById('basicInfo');
+                                            basicInfoDiv.innerHTML = `
+                                        <p><strong>Dimensions:</strong> ${infoResult.extent.width} × ${infoResult.extent.height} pixels</p>
+                                        <p><strong>Encoding:</strong> TILE_ENCODING_${encodingName}</p>
+                                        <p><strong>Layers:</strong> ${infoResult.extent.layerCount}</p>
+                                    `;
+
+                                            // Display layer information in the table
+                                            const layerTableBody = document.getElementById('layerTable').getElementsByTagName('tbody')[0];
+                                            layerTableBody.innerHTML = '';
+
+                                            if (infoResult.extent.layers && infoResult.extent.layers.length > 0) {
+                                                for (let i = 0; i < infoResult.extent.layers.length; i++) {
+                                                    const layer = infoResult.extent.layers[i];
+                                                    const totalTiles = layer.xTiles * layer.yTiles;
+
+                                                    // Round scale and downsample values to the nearest integer
+                                                    const roundedScale = Math.round(layer.scale);
+                                                    const roundedDownsample = Math.round(layer.downsample);
+
+                                                    const row = layerTableBody.insertRow();
+                                                    row.innerHTML = `
+                                                <td>${i}</td>
+                                                <td>${layer.xTiles}</td>
+                                                <td>${layer.yTiles}</td>
+                                                <td>${totalTiles}</td>
+                                                <td>${roundedScale}x</td>
+                                                <td>${roundedDownsample}</td>
+                                            `;
+                                                }
+                                            }
+
+                                            // Display metadata if available
+                                            if (infoResult.metadata) {
+                                                const metadataSection = document.getElementById('metadataSection');
+                                                const metadataInfo = document.getElementById('metadataInfo');
+
+                                                metadataInfo.innerHTML = '';
+
+                                                if (infoResult.metadata.magnification) {
+                                                    metadataInfo.innerHTML += `
+                                                <div class="metadata-item">
+                                                    <strong>Magnification:</strong> ${infoResult.metadata.magnification}x
+                                                </div>
+                                            `;
+                                                }
+
+                                                if (infoResult.metadata.micronsPerPixel) {
+                                                    metadataInfo.innerHTML += `
+                                                <div class="metadata-item">
+                                                    <strong>Microns per Pixel:</strong> ${infoResult.metadata.micronsPerPixel} µm
+                                                </div>
+                                            `;
+                                                }
+
+                                                metadataSection.style.display = metadataInfo.innerHTML ? 'block' : 'none';
+                                            } else {
+                                                document.getElementById('metadataSection').style.display = 'none';
+                                            }
+
+                                            // Show the slide info section
+                                            document.getElementById('slideInfo').style.display = 'block';
+
+                                            // Populate layer dropdown for the viewer
+                                            const layerSelect = document.getElementById('layerSelect');
+                                            layerSelect.innerHTML = '';
+
+                                            for (let i = 0; i < infoResult.extent.layerCount; i++) {
+                                                const layer = infoResult.extent.layers[i];
+                                                const roundedScale = Math.round(layer.scale);
+                                                const option = document.createElement('option');
+                                                option.value = i;
+                                                option.textContent = `Layer ${i} (${roundedScale}x)`;
+                                                layerSelect.appendChild(option);
+                                            }
+
+                                            // Initialize the viewer
+                                            initializeViewer();
+
+                                            log("Slide information retrieved successfully");
+                                        } else {
+                                            log(`Get Info Message: ${infoResult.message || "No message"}`);
+                                        }
+                                    } catch (infoErr) {
+                                        log(`Error getting slide info: ${infoErr.message || infoErr}`);
+                                        console.error("Get info error:", infoErr);
+                                    }
+                                } else {
+                                    log(`Failed to open slide: ${openResult.message || "Unknown error"}`);
+                                }
+                            } catch (openErr) {
+                                log(`Error opening slide: ${openErr.message || openErr}`);
+                                console.error("Open slide error:", openErr);
+                            }
+                        } else {
+                            log("Skipping slide open due to validation failure");
+                        }
+                    } catch (validationErr) {
+                        log(`Error during validation: ${validationErr.message || validationErr}`);
+                        console.error("Validation error:", validationErr);
+                    }
+
+                    hideLoading();
+                } catch (err) {
+                    log(`Error writing file to filesystem: ${err.message || err}`);
+                    hideLoading();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Initialize the slide viewer
+        function initializeViewer() {
+            // Reset viewer state
+            viewerState = {
+                currentLayer: 0,
+                centerTileX: 0,
+                centerTileY: 0,
+                offsetX: 0,
+                offsetY: 0,
+                scale: 1,
+                isDragging: false,
+                lastMouseX: 0,
+                lastMouseY: 0,
+                tileCache: {},
+                visibleTiles: [],
+                tileSize: 256,
+                initialViewSet: false
+            };
+
+            // Show the viewer
+            document.getElementById('slideViewer').style.display = 'block';
+
+            // Set initial layer
+            document.getElementById('layerSelect').value = 0;
+
+            // Calculate initial center position for layer 0
+            if (slideInfo && slideInfo.extent.layers && slideInfo.extent.layers.length > 0) {
+                const layer0 = slideInfo.extent.layers[0];
+                viewerState.centerTileX = Math.floor(layer0.xTiles / 2);
+                viewerState.centerTileY = Math.floor(layer0.yTiles / 2);
+            }
+
+            // Load and display the initial view
+            updateView();
+        }
+
+        // Function to load a tile and return a promise with the image
+        function loadTile(layerIndex, tileIndex) {
+            return new Promise((resolve, reject) => {
+                const cacheKey = `${layerIndex}_${tileIndex}`;
+
+                // Check if tile is already in cache
+                if (viewerState.tileCache[cacheKey]) {
+                    resolve(viewerState.tileCache[cacheKey]);
+                    return;
+                }
+
+                try {
+                    // Check if module and slide handle are properly initialized
+                    if (!irisModule || !slideHandle) {
+                        reject(new Error("Module not fully initialized or slide not opened"));
+                        return;
+                    }
+
+                    // Use the handle-based readSlideTile function
+                    const result = irisModule.readSlideTile(slideHandle, layerIndex, tileIndex);
+
+                    if (result && result.success && result.data) {
+                        // Determine the MIME type based on the encoding
+                        let mimeType = "image/jpeg"; // Default to JPEG
+                        if (slideInfo.encoding === 3) { // TILE_ENCODING_AVIF
+                            mimeType = "image/avif";
+                        }
+
+                        // Create a Blob from the compressed data
+                        const blob = new Blob([result.data], { type: mimeType });
+                        const blobUrl = URL.createObjectURL(blob);
+
+                        // Create an image element and load the blob URL
+                        const img = new Image();
+                        img.onload = function () {
+                            // Cache the loaded image
+                            viewerState.tileCache[cacheKey] = img;
+
+                            // Clean up the blob URL
+                            URL.revokeObjectURL(blobUrl);
+
+                            resolve(img);
+                        };
+
+                        img.onerror = function () {
+                            URL.revokeObjectURL(blobUrl);
+                            reject(new Error(`Failed to load image for layer ${layerIndex}, tile ${tileIndex}`));
+                        };
+
+                        img.src = blobUrl;
+                    } else {
+                        reject(new Error(`Failed to read tile: ${result ? result.message : "Unknown error"}`));
+                    }
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }
+
+        // Function to convert linear tile index to x,y coordinates
+        function tileIndexToCoords(tileIndex, layerIndex) {
+            if (!slideInfo || !slideInfo.extent.layers || layerIndex >= slideInfo.extent.layers.length) {
+                return { x: 0, y: 0 };
+            }
+
+            const layer = slideInfo.extent.layers[layerIndex];
+            const x = tileIndex % layer.xTiles;
+            const y = Math.floor(tileIndex / layer.xTiles);
+
+            return { x, y };
+        }
+
+        // Function to convert x,y coordinates to linear tile index
+        function coordsToTileIndex(x, y, layerIndex) {
+            if (!slideInfo || !slideInfo.extent.layers || layerIndex >= slideInfo.extent.layers.length) {
+                return 0;
+            }
+
+            const layer = slideInfo.extent.layers[layerIndex];
+            return y * layer.xTiles + x;
+        }
+
+        // Function to update the view based on current state
+        function updateView() {
+            if (!slideInfo || !slideInfo.extent.layers) return;
+
+            const canvas = document.getElementById('viewerCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const currentLayer = viewerState.currentLayer;
+            const layer = slideInfo.extent.layers[currentLayer];
+
+            if (!layer) return;
+
+            // Calculate how many tiles we can display
+            const tilesX = Math.ceil(canvas.width / viewerState.tileSize) + 1;
+            const tilesY = Math.ceil(canvas.height / viewerState.tileSize) + 1;
+
+            // Calculate the starting tile based on center position and offset
+            const startTileX = Math.max(0, Math.floor(viewerState.centerTileX - tilesX / 2));
+            const startTileY = Math.max(0, Math.floor(viewerState.centerTileY - tilesY / 2));
+
+            // Calculate pixel offset for smooth scrolling
+            const pixelOffsetX = viewerState.offsetX - Math.floor(canvas.width / 2) % viewerState.tileSize;
+            const pixelOffsetY = viewerState.offsetY - Math.floor(canvas.height / 2) % viewerState.tileSize;
+
+            // Keep track of tiles we're going to display
+            const newVisibleTiles = [];
+            const loadPromises = [];
+
+            // Loop through visible tiles
+            for (let y = 0; y < tilesY; y++) {
+                for (let x = 0; x < tilesX; x++) {
+                    const tileX = startTileX + x;
+                    const tileY = startTileY + y;
+
+                    // Skip if out of bounds
+                    if (tileX < 0 || tileX >= layer.xTiles || tileY < 0 || tileY >= layer.yTiles) {
+                        continue;
+                    }
+
+                    const tileIndex = coordsToTileIndex(tileX, tileY, currentLayer);
+                    newVisibleTiles.push({ layerIndex: currentLayer, tileIndex, x: tileX, y: tileY });
+
+                    // Start loading the tile
+                    loadPromises.push(
+                        loadTile(currentLayer, tileIndex)
+                            .then(img => {
+                                // Draw the tile at the correct position
+                                const drawX = x * viewerState.tileSize + pixelOffsetX;
+                                const drawY = y * viewerState.tileSize + pixelOffsetY;
+                                ctx.drawImage(img, drawX, drawY);
+                            })
+                            .catch(err => {
+                                console.error(`Error loading tile: ${err.message}`);
+                                // Draw a placeholder for failed tiles
+                                const drawX = x * viewerState.tileSize + pixelOffsetX;
+                                const drawY = y * viewerState.tileSize + pixelOffsetY;
+                                ctx.fillStyle = '#ffcccc';
+                                ctx.fillRect(drawX, drawY, viewerState.tileSize, viewerState.tileSize);
+                                ctx.strokeStyle = '#ff0000';
+                                ctx.strokeRect(drawX, drawY, viewerState.tileSize, viewerState.tileSize);
+                                ctx.fillStyle = '#ff0000';
+                                ctx.font = '14px Arial';
+                                ctx.fillText('Load Error', drawX + 10, drawY + viewerState.tileSize / 2);
+                            })
+                    );
+                }
+            }
+
+            // Update visible tiles list
+            viewerState.visibleTiles = newVisibleTiles;
+
+            // Wait for all tiles to load
+            Promise.all(loadPromises).then(() => {
+                // All tiles loaded
+            }).catch(err => {
+                console.error("Error loading tiles:", err);
+            });
+
+            // Update status bar
+            updateStatusBar();
+        }
+
+        // Function to update the status bar
+        function updateStatusBar() {
+            const statusBar = document.getElementById('statusBar');
+            statusBar.textContent = `Layer: ${viewerState.currentLayer} | Center Tile: X: ${viewerState.centerTileX}, Y: ${viewerState.centerTileY}`;
+        }
+
+        // Function to switch to a different layer while maintaining the view center
+        function switchLayer(newLayerIndex) {
+            if (!slideInfo || !slideInfo.extent.layers) return;
+            if (newLayerIndex < 0 || newLayerIndex >= slideInfo.extent.layers.length) return;
+
+            const oldLayer = slideInfo.extent.layers[viewerState.currentLayer];
+            const newLayer = slideInfo.extent.layers[newLayerIndex];
+
+            if (!oldLayer || !newLayer) return;
+
+            // Calculate the scale factor between layers
+            const oldScale = oldLayer.scale;
+            const newScale = newLayer.scale;
+            const scaleFactor = newScale / oldScale;
+
+            // Calculate new center position based on scale difference
+            const newCenterX = Math.floor(viewerState.centerTileX * scaleFactor);
+            const newCenterY = Math.floor(viewerState.centerTileY * scaleFactor);
+
+            // Update the viewer state
+            viewerState.currentLayer = newLayerIndex;
+            viewerState.centerTileX = Math.min(Math.max(0, newCenterX), newLayer.xTiles - 1);
+            viewerState.centerTileY = Math.min(Math.max(0, newCenterY), newLayer.yTiles - 1);
+            viewerState.offsetX = 0;
+            viewerState.offsetY = 0;
+
+            // Update the view
+            updateView();
+        }
+
+        // Layer select change handler
+        document.getElementById('layerSelect').addEventListener('change', function () {
+            const newLayerIndex = parseInt(this.value);
+            switchLayer(newLayerIndex);
+        });
+
+        // Reset view button
+        document.getElementById('resetViewBtn').addEventListener('click', function () {
+            initializeViewer();
+        });
+
+        // Mouse event handlers for panning
+        const viewerCanvas = document.getElementById('viewerCanvas');
+
+        viewerCanvas.addEventListener('mousedown', function (e) {
+            viewerState.isDragging = true;
+            viewerState.lastMouseX = e.clientX;
+            viewerState.lastMouseY = e.clientY;
+            viewerCanvas.style.cursor = 'grabbing';
+        });
+
+        viewerCanvas.addEventListener('mousemove', function (e) {
+            // Update status bar with mouse position
+            const rect = viewerCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // Convert mouse position to tile coordinates
+            const tileX = Math.floor((mouseX - viewerState.offsetX) / viewerState.tileSize) + viewerState.centerTileX - Math.floor(viewerCanvas.width / viewerState.tileSize / 2);
+            const tileY = Math.floor((mouseY - viewerState.offsetY) / viewerState.tileSize) + viewerState.centerTileY - Math.floor(viewerCanvas.height / viewerState.tileSize / 2);
+
+            const layer = slideInfo?.extent?.layers?.[viewerState.currentLayer];
+            if (layer && tileX >= 0 && tileX < layer.xTiles && tileY >= 0 && tileY < layer.yTiles) {
+                document.getElementById('statusBar').textContent = `Position: X: ${mouseX}, Y: ${mouseY} | Tile: X: ${tileX}, Y: ${tileY}`;
+            }
+
+            if (viewerState.isDragging) {
+                const dx = e.clientX - viewerState.lastMouseX;
+                const dy = e.clientY - viewerState.lastMouseY;
+
+                viewerState.lastMouseX = e.clientX;
+                viewerState.lastMouseY = e.clientY;
+
+                // Update offset
+                viewerState.offsetX += dx;
+                viewerState.offsetY += dy;
+
+                // Check if we need to move to a different center tile
+                const tileOffsetX = Math.floor(viewerState.offsetX / viewerState.tileSize);
+                const tileOffsetY = Math.floor(viewerState.offsetY / viewerState.tileSize);
+
+                if (tileOffsetX !== 0 || tileOffsetY !== 0) {
+                    // Move center tile
+                    const layer = slideInfo.extent.layers[viewerState.currentLayer];
+
+                    viewerState.centerTileX = Math.min(Math.max(0, viewerState.centerTileX - tileOffsetX), layer.xTiles - 1);
+                    viewerState.centerTileY = Math.min(Math.max(0, viewerState.centerTileY - tileOffsetY), layer.yTiles - 1);
+
+                    // Reset offset
+                    viewerState.offsetX -= tileOffsetX * viewerState.tileSize;
+                    viewerState.offsetY -= tileOffsetY * viewerState.tileSize;
+                }
+
+                // Update the view
+                updateView();
+            }
+        });
+
+        viewerCanvas.addEventListener('mouseup', function () {
+            viewerState.isDragging = false;
+            viewerCanvas.style.cursor = 'grab';
+        });
+
+        viewerCanvas.addEventListener('mouseleave', function () {
+            viewerState.isDragging = false;
+            viewerCanvas.style.cursor = 'grab';
+        });
+
+        // Prevent context menu on right-click
+        viewerCanvas.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+
+        // Add wheel event for zooming (changing layers)
+        viewerCanvas.addEventListener('wheel', function (e) {
+            e.preventDefault();
+
+            if (!slideInfo || !slideInfo.extent.layers) return;
+
+            const currentLayerIndex = viewerState.currentLayer;
+            let newLayerIndex;
+
+            if (e.deltaY < 0) {
+                // Zoom in (go to higher resolution layer)
+                newLayerIndex = Math.min(currentLayerIndex + 1, slideInfo.extent.layers.length - 1);
+            } else {
+                // Zoom out (go to lower resolution layer)
+                newLayerIndex = Math.max(currentLayerIndex - 1, 0);
+            }
+
+            if (newLayerIndex !== currentLayerIndex) {
+                document.getElementById('layerSelect').value = newLayerIndex;
+                switchLayer(newLayerIndex);
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', function () {
+            updateView();
+        });
+
+        // Add cleanup when the page is unloaded
+        window.addEventListener('beforeunload', function () {
+            if (slideHandle && irisModule) {
+                try {
+                    irisModule.closeSlide(slideHandle);
+                } catch (e) {
+                    console.error("Error closing slide:", e);
+                }
+            }
+        });
+    </script>
+    <script src="../iris_codec.js"></script>
+</body>
+
+</html>

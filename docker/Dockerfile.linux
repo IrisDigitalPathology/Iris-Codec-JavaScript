@@ -1,0 +1,156 @@
+FROM emscripten/emsdk:latest
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    zip \
+    unzip \
+    python3 \
+    nano \
+    vim \
+    wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install newer version of CMake
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.26.4/cmake-3.26.4-linux-x86_64.sh \
+    -q -O /tmp/cmake-install.sh \
+    && chmod u+x /tmp/cmake-install.sh \
+    && mkdir -p /opt/cmake \
+    && /tmp/cmake-install.sh --skip-license --prefix=/opt/cmake \
+    && ln -s /opt/cmake/bin/* /usr/local/bin/ \
+    && rm /tmp/cmake-install.sh
+
+# Set up working directory
+WORKDIR /app
+
+# Copy the source code
+COPY . .
+
+# Create a script to run the build with arguments
+RUN echo '#!/bin/bash\n\
+\n\
+# Parse command line arguments\n\
+BUILD_EXAMPLES=true\n\
+CREATE_PACKAGE=false\n\
+\n\
+for arg in "$@"\n\
+do\n\
+    case $arg in\n\
+        --no-examples)\n\
+        BUILD_EXAMPLES=false\n\
+        shift\n\
+        ;;\n\
+        --package)\n\
+        CREATE_PACKAGE=true\n\
+        shift\n\
+        ;;\n\
+        --install=*)\n\
+        # Ignore install option in Docker context\n\
+        shift\n\
+        ;;\n\
+    esac\n\
+done\n\
+\n\
+# Main script\n\
+cd /app\n\
+\n\
+# Create examples directory structure if needed and if examples are enabled\n\
+if [ "$BUILD_EXAMPLES" = true ]; then\n\
+    mkdir -p examples/js\n\
+fi\n\
+\n\
+# Run CMake to fetch dependencies\n\
+mkdir -p build\n\
+cd build\n\
+\n\
+# Configure CMake with appropriate flags\n\
+EXAMPLES_FLAG=""\n\
+if [ "$BUILD_EXAMPLES" = false ]; then\n\
+    EXAMPLES_FLAG="-DIRIS_BUILD_HTML_EXAMPLES=OFF"\n\
+fi\n\
+\n\
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release $EXAMPLES_FLAG\n\
+\n\
+# Fix the SHARED library warning if needed\n\
+if [ -f _deps/irisfileextension-src/CMakeLists.txt ]; then\n\
+  sed -i "s|add_library(IrisFileExtension SHARED|add_library(IrisFileExtension STATIC|g" _deps/irisfileextension-src/CMakeLists.txt\n\
+fi\n\
+\n\
+# Clean and reconfigure\n\
+rm -f CMakeCache.txt\n\
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release $EXAMPLES_FLAG\n\
+\n\
+# Run the actual build\n\
+emmake make -j$(nproc)\n\
+\n\
+# Copy build artifacts to the output directory if it exists\n\
+if [ -d "/output" ]; then\n\
+  # Clear previous output\n\
+  rm -rf /output/*\n\
+  \n\
+  # Create the new directory structure\n\
+  mkdir -p /output\n\
+  \n\
+  # Copy WebAssembly files\n\
+  cp -f iris_codec.js iris_codec.wasm /output/\n\
+  \n\
+  # Copy example HTML files if examples are enabled\n\
+  if [ "$BUILD_EXAMPLES" = true ]; then\n\
+    if [ -d "html_examples" ]; then\n\
+      mkdir -p /output/html_examples\n\
+      cp -rf html_examples/* /output/html_examples/\n\
+    elif [ -d "../examples" ]; then\n\
+      mkdir -p /output/html_examples\n\
+      cp -rf ../examples/*.html /output/html_examples/\n\
+    fi\n\
+  fi\n\
+  \n\
+  # Create packages if requested\n\
+  if [ "$CREATE_PACKAGE" = true ]; then\n\
+    # Get version from CMakeLists.txt\n\
+    VERSION=$(grep -oP '\''VERSION \K[0-9]+\.[0-9]+\.[0-9]+'\'' ../CMakeLists.txt)\n\
+    \n\
+    # Determine platform architecture\n\
+    ARCH=$(uname -m)\n\
+    if [ "$ARCH" = "x86_64" ]; then\n\
+      PLATFORM="linux-x86_64"\n\
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then\n\
+      PLATFORM="linux-aarch64"\n\
+    else\n\
+      PLATFORM="linux-$ARCH"\n\
+    fi\n\
+    \n\
+    # Create a temporary directory for packaging\n\
+    TEMP_DIR=$(mktemp -d)\n\
+    mkdir -p $TEMP_DIR/iris-codec\n\
+    \n\
+    # Copy files to the temp directory\n\
+    cp -f iris_codec.js iris_codec.wasm $TEMP_DIR/iris-codec/\n\
+    \n\
+    # Copy examples if they exist and are enabled\n\
+    if [ "$BUILD_EXAMPLES" = true ] && [ -d "/output/html_examples" ]; then\n\
+      mkdir -p $TEMP_DIR/iris-codec/html_examples\n\
+      cp -rf /output/html_examples/* $TEMP_DIR/iris-codec/html_examples/\n\
+    fi\n\
+    \n\
+    # Create the tar.gz package\n\
+    cd $TEMP_DIR\n\
+    tar -czf "${PLATFORM}-iris-codec-${VERSION}-a2.tar.gz" iris-codec\n\
+    cp -f "${PLATFORM}-iris-codec-${VERSION}-a2.tar.gz" /output/\n\
+    \n\
+    # Clean up\n\
+    rm -rf $TEMP_DIR\n\
+    \n\
+    echo "Package created: ${PLATFORM}-iris-codec-${VERSION}-a2.tar.gz"\n\
+  fi\n\
+  \n\
+  echo "Build artifacts copied to /output directory."\n\
+fi\n\
+\n\
+echo "Build complete."' > /usr/local/bin/build-wasm && \
+    chmod +x /usr/local/bin/build-wasm
+
+# Set the entrypoint
+ENTRYPOINT ["/usr/local/bin/build-wasm"]
