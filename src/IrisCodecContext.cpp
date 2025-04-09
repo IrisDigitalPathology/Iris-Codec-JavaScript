@@ -29,15 +29,13 @@ __INTERNAL__Context::~__INTERNAL__Context()
 
 Buffer __INTERNAL__Context::compress_tile(const CompressTileInfo& info)
 {
-    // For Emscripten, we'll just return a copy of the input buffer
-    // In a real implementation, you would use WebAssembly-compatible libraries
+    // For Emscripten, just return a copy of the input buffer
     return Copy_strong_buffer_from_data(info.pixelArray->data(), info.pixelArray->size());
 }
 
 Buffer __INTERNAL__Context::decompress_tile(const DecompressTileInfo& info)
 {
-    // For Emscripten, we'll just return a copy of the input buffer
-    // In a real implementation, you would use WebAssembly-compatible libraries
+    // For Emscripten, just return a copy of the input buffer
     return Copy_strong_buffer_from_data(info.compressed->data(), info.compressed->size());
 }
 

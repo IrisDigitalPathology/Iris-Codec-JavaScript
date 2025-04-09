@@ -55,7 +55,7 @@ FetchContent_MakeAvailable(
     IrisFileExtension
 )
 
-# We'll handle IrisCodec differently to avoid building its dependencies
+# Handle IrisCodec to avoid building all of its dependencies
 FetchContent_GetProperties(IrisCodec)
 if(NOT iriscodec_POPULATED)
     FetchContent_Populate(IrisCodec)

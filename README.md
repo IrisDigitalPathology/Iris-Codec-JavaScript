@@ -1,4 +1,4 @@
-# Iris Codec JavaScript
+# Iris-Codec-JavaScript
 
 This repository contains the WebAssembly (WASM) build of the Iris Codec library, allowing it to be used in web browsers and Node.js applications.
 
