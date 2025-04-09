@@ -1,0 +1,27 @@
+services:
+  linux-build:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.linux
+    volumes:
+      - ../output:/output
+    command: ["--package"]
+
+  linux-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.linux
+    volumes:
+      - ../:/app
+      - ../output:/output
+    entrypoint: /bin/bash
+    tty: true
+    stdin_open: true
+
+  windows-build:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.windows
+    volumes:
+      - ../output:/output
+    command: ["--package"]
